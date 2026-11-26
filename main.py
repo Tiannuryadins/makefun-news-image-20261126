@@ -1,39 +1,64 @@
 #!/usr/bin/env python3
-"""Entry point for make.fun bounty news-image-20261126.
+"""news-image-20261126 entrypoint.
 
-Copies the pre-rendered 1024x1024 newspaper poster (poster.png, built
-at authoring time by render_poster.py from news verified on 26 Nov
-2026) to the make.fun output directory as entry.png.
-
-Deterministic: the same poster.png bytes are copied on every run, so
-two runs produce byte-identical entry.png files. No network access,
-no randomness, no dependencies beyond the Python standard library.
-
-Usage:
-    MAKEFUN_OUTPUT_DIR=out python3 main.py   # writes out/entry.png
-    python3 main.py                          # writes output/entry.png
+Takes the rendered poster sitting next to this script and places a copy
+at the location the make.fun harness expects: $MAKEFUN_OUTPUT_DIR/entry.png.
+When the harness variable is absent, fall back to an "output" folder
+beside this file so the entry still runs standalone.
 """
 
 import hashlib
 import os
 import shutil
-import sys
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.join(HERE, "poster.png")
+from pathlib import Path
 
 
-def main() -> int:
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "output")
-    dest = os.path.join(out_dir, "entry.png")
-    os.makedirs(out_dir, exist_ok=True)
-    shutil.copyfile(SOURCE, dest)
-    with open(dest, "rb") as fh:
-        digest = hashlib.sha256(fh.read()).hexdigest()
-    size = os.path.getsize(dest)
-    print(f"wrote {dest} ({size} bytes, sha256 {digest})")
-    return 0
+SOURCE_NAME = "poster.png"
+TARGET_NAME = "entry.png"
+FALLBACK_DIRNAME = "output"
+
+
+def script_folder() -> Path:
+    """Folder holding this script (and the poster next to it)."""
+    return Path(__file__).resolve().parent
+
+
+def destination_folder() -> Path:
+    """Where entry.png should land.
+
+    Prefer the harness-provided output directory; otherwise use a local
+    "output" directory beside the script.
+    """
+    harness_dir = os.environ.get("MAKEFUN_OUTPUT_DIR")
+    if harness_dir:
+        return Path(harness_dir)
+    return script_folder() / FALLBACK_DIRNAME
+
+
+def copy_poster(source: Path, target: Path) -> None:
+    """Copy the poster to the target path, creating folders as needed."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+
+
+def digest_file(path: Path) -> str:
+    """SHA-256 hex digest of a file, streamed in chunks."""
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def main() -> None:
+    poster = script_folder() / SOURCE_NAME
+    entry = destination_folder() / TARGET_NAME
+    copy_poster(poster, entry)
+    size = entry.stat().st_size
+    digest = digest_file(entry)
+    print(f"entry.png: {size} bytes")
+    print(f"sha256: {digest}")
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
